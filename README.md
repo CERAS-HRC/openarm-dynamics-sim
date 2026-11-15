@@ -128,11 +128,11 @@ files when reopening exports on this computer. Running `./scripts/start.sh` with
 
 ### Your imported CAD arm
 
-The replacement Onshape export in `robots/moving_asm` has seven real CAD links
-and seven controlled joints, including `part_7` driven by J7. Start it with:
+The Onshape export in `robots/right_arm_assembly` has seven controlled joints
+(`revolute_1`–`revolute_7`) and a drumstick tool. Start it with:
 
 ```bash
-./scripts/start.sh --urdf robots/moving_asm/urdf/moving_asm.urdf
+./scripts/start.sh --urdf robots/right_arm_assembly/urdf/right_arm_assembly.urdf
 ```
 
 | Imported joints | Drive model | Rated / peak torque (Nm) | Rated / no-load speed (rpm) |
@@ -142,35 +142,29 @@ and seven controlled joints, including `part_7` driven by J7. Start it with:
 | revolute_5–7 | RobStride 00 | 5 / 14 | 100 / 315 |
 
 The wrist drives use the [RobStride 00 manufacturer ratings](https://robstride.com/products/robStride00).
-The saved `moving_asm.sim.yaml` includes the original
-80% torque derating, speed-dependent torque envelope, gravity compensation, and
-P/D gains. URDF effort limits contain the peak torques; velocity limits contain
-the no-load speeds in rad/s. Mesh references use the sibling `meshes/` directory.
-Keep this curated `.sim.yaml` to retain the rated/peak distinction and drive settings.
+The saved `right_arm_assembly.sim.yaml` includes the 80% torque derating,
+speed-dependent torque envelope, gravity compensation, and P/D gains. URDF effort
+limits contain the peak torques; velocity limits contain the no-load speeds in
+rad/s. Mesh references use the sibling `meshes/` directory. Keep this curated
+`.sim.yaml` to retain the rated/peak distinction and drive settings.
 J1, J3 and J5 are continuous. J2 (−20° to 200°), J4 (±135°), J6 (−90° to 50°)
-and J7 (−56° to 70°) are revolute with the real hardware limits. J7 rotates the real `part_7` CAD link on the
-`rs00_1` actuator; its housing stays fixed to `part_6`. The exported joint origins,
-axes, link geometry, and `part_7` mass/inertia are retained. The seventh link weighs
-**0.427991 kg**. No placeholder tool is added. The report's tracked point is the
-`part_7` link origin; set `urdf.tip_offset_m` to a measured tool-tip offset if needed.
+and J7 (±70°) are revolute with the real hardware limits.
 
-The three RS00 housings use the catalog mass of 0.310 kg each, and both RS06
+The RS00 housings use the catalog mass of 0.310 kg each, and both RS06
 housings use 0.621 kg each. Their CAD COMs are retained and inertias are scaled
-proportionally to mass (a uniform-density approximation). Other CAD inertias/masses
-are retained. Total simulated mass, including the real seventh link, is **7.446340 kg**.
+proportionally to mass (a uniform-density approximation). The tool links `base`,
+`screwon` and `drumstick` use measured masses (0.151 / 0.065 / 0.043 lb). The
+report's tracked point is the drumstick's tapered striking end
+(`urdf.tip_offset_m` in the `.sim.yaml`).
 The original generated arm in `configs/arm.yaml` also uses 00 drives at J5–J7.
 
 > **Self-collision:** links never collide in the physics (the CAD meshes are
-> visual-only and contacts are off). Within the joint limits, about 4% of random
-> poses put one part inside another, mostly `part_7` against `part_5` at certain
-> wrist angle combinations. Per-joint limits cannot exclude these; the campaign's
-> self-collision check (below) rejects them.
+> visual-only and contacts are off). Within the joint limits, some random poses
+> put one part inside another, mostly at certain wrist angle combinations.
+> Per-joint limits cannot exclude these; the campaign's self-collision check
+> (below) rejects them.
 
-### Right-arm drumstick CAD
-
-`robots/right_arm_assembly/urdf/right_arm_assembly.urdf` imports the same way
-(`./scripts/start.sh --urdf robots/right_arm_assembly/urdf/right_arm_assembly.urdf`).
-Its `.sim.yaml` excludes the `rs*` actuators from load rows; `base`, `screwon` and
+The `.sim.yaml` excludes the `rs*` actuators from load rows; `base`, `screwon` and
 `drumstick` report as the single part `base`, and a massless wrapper part `body_1`
 carries the mount reaction (`body_1 <- world`). See "Loads for FEA" below.
 
@@ -202,7 +196,7 @@ Run either viewer from this project folder (separate output folders keep reports
 ./scripts/start.sh --out results/original
 
 # Imported CAD arm:
-./scripts/start.sh --urdf robots/moving_asm/urdf/moving_asm.urdf --out results/cad
+./scripts/start.sh --urdf robots/right_arm_assembly/urdf/right_arm_assembly.urdf --out results/cad
 ```
 
 In each viewer, save poses A and B, set **Move duration**, then click
@@ -214,7 +208,7 @@ To run the saved motions without opening a window:
 
 ```bash
 .venv/bin/arm-sim sweep --out results/original
-.venv/bin/arm-sim sweep --urdf robots/moving_asm/urdf/moving_asm.urdf --out results/cad
+.venv/bin/arm-sim sweep --urdf robots/right_arm_assembly/urdf/right_arm_assembly.urdf --out results/cad
 ```
 
 ## Use
@@ -364,7 +358,7 @@ for the force and moment magnitude of **every reported row** (each mate and delt
 
 ```bash
 .venv/bin/arm-sim campaign --samples 200 --iterations 20 --min-duration 0.1 --max-duration 5
-.venv/bin/arm-sim campaign --urdf robots/moving_asm/urdf/moving_asm.urdf --out results/cad-campaign
+.venv/bin/arm-sim campaign --urdf robots/right_arm_assembly/urdf/right_arm_assembly.urdf --out results/cad-campaign
 ```
 
 Options: `--samples` random sweeps (default 200), `--iterations` refinement sweeps per
@@ -438,8 +432,8 @@ with `--max-contact-moment-nm`) that need no random sweeps. **Always pass
 
 ```bash
 .venv/bin/arm-sim bounds --max-contact-force-n 200
-.venv/bin/arm-sim bounds --urdf robots/moving_asm/urdf/moving_asm.urdf --max-contact-force-n 200 --out results/cad-bounds
-.venv/bin/arm-sim bounds --urdf robots/moving_asm/urdf/moving_asm.urdf --max-contact-force-n 100 --max-contact-moment-nm 10
+.venv/bin/arm-sim bounds --urdf robots/right_arm_assembly/urdf/right_arm_assembly.urdf --max-contact-force-n 200 --out results/cad-bounds
+.venv/bin/arm-sim bounds --urdf robots/right_arm_assembly/urdf/right_arm_assembly.urdf --max-contact-force-n 100 --max-contact-moment-nm 10
 ```
 
 - **gravity:** the arm holding a pose against gravity alone, searched for the worst
