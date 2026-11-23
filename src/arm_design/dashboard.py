@@ -24,6 +24,7 @@ from .trial_playback import playback, model_geometry, display_pose
 from .trial_recording import trace_path, recording_status, start_recording
 from .dashboard_jobs import prepare, save_request, job_state, request_stop
 from .payload import default_payload_offset
+from . import dashboard_queue
 
 COLORS = ['#25c9a3', '#ffb45b', '#65a9ff', '#ed81c5', '#b2a0ff', '#ef7176', '#9dc66b', '#79d5e8']
 TAIL_DEFAULT = .995
@@ -531,6 +532,7 @@ def create_app(root):
                      html.P('Explore motion. Inspect restraint. Trace every load back to a trial.')]),
         dcc.Tabs(id='workspace-tab',value='viewer',className='workspace-tabs',children=[
             dcc.Tab(label='Runner',value='runner',className='workspace-tab',selected_className='workspace-tab-selected'),
+            dcc.Tab(label='Test queue',value='queue',className='workspace-tab',selected_className='workspace-tab-selected'),
             dcc.Tab(label='Viewer',value='viewer',className='workspace-tab',selected_className='workspace-tab-selected'),
         ]),
         dcc.Store(id='runner-run'),dcc.Store(id='runner-observed'),dcc.Store(id='runner-settings-key'),
@@ -614,6 +616,7 @@ def create_app(root):
                 html.Details([html.Summary('Model and experiment assumptions'), html.Pre(id='assumptions')]),
             ])
         ],id='viewer-panel',className='workspace'),
+        dashboard_queue.layout(models),
     ])
 
     def safe(value):
@@ -646,10 +649,10 @@ def create_app(root):
         Input('live-arm-enabled','value'),Input('workspace-tab','value'))
 
     app.clientside_callback("""function(tab) {
-        document.documentElement.classList.toggle('runner-active', tab === 'runner');
+        document.documentElement.classList.toggle('runner-active', tab !== 'viewer');
         window.setTimeout(function() { window.dispatchEvent(new Event('resize')); }, 80);
-        return tab === 'runner' ? [{}, {display:'none'}] : [{display:'none'}, {}];
-    }""",Output('runner-panel','style'),Output('viewer-panel','style'),Input('workspace-tab','value'))
+        return ['runner', 'viewer', 'queue'].map(name => tab === name ? {} : {display:'none'});
+    }""",Output('runner-panel','style'),Output('viewer-panel','style'),Output('queue-panel','style'),Input('workspace-tab','value'))
 
     @app.callback(Output('runner-run','data'),Output('runner-status','children'),
                   Output('runner-progress','value'),Output('runner-progress','max'),
@@ -1038,6 +1041,8 @@ def create_app(root):
             prepared['form'] = runner_form(model,scenario,dict(count=restrained_count if scenario=='restrained' else free_count,
                 seed=seed,workers=workers,motion=motion,min_duration=mind,max_duration=maxd,duration=duration,ramp=ramp,
                 pose_count=pose_count,poses=poses,full=full,name=name,mass=mass,offset=[x,y,z],size=[sx,sy,sz],inertia=inertia))
+            if queue_busy():
+                return 'A test queue is running. Stop it or wait for it to finish.',no_update
             with launch_lock:
                 previous = active_jobs.get(scenario) or (jobs or {}).get(scenario)
                 if previous and running_job(previous)['status'] in ('starting','running'):
@@ -1094,6 +1099,7 @@ def create_app(root):
             return 'Stop requested for the selected run. Active trials finish; completed results are retained.'
         return 'Select a running analysis.'
 
+    queue_busy = dashboard_queue.register(app, root, models, lambda: any(running_job(p)['status'] in ('starting','running') for p in active_jobs.values()))
     return app
 
 

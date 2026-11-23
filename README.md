@@ -666,6 +666,21 @@ retained. Closing the browser does not cancel workers. Advanced settings also al
 custom restrained poses, worker count, seed, and full histories for playback.
 The native legacy campaign convergence plot remains available through `watch` / `--live`.
 
+### Test queue (unattended runs)
+
+The **Test queue** tab runs checked tests one after another: aggressive sweeps, `bounds`, finer-timestep checks and restrained
+trials, each with its own payload, amount and number of seeds. It shows each test's estimated time, the total and the finish
+time. Estimates start from a one-second speed test and use this machine's own past queue runs (1,000+ units, same robot, test,
+payload and worker count) once they exist. **Run selected tests** starts a detached process that keeps a Mac awake and survives closing
+the browser or the dashboard; a failed test is logged and the next one starts. **Stop now** keeps completed trials, **Stop after
+current test** pauses, and **Resume** continues (an interrupted test restarts; its partial results are kept and labelled).
+The Runner and the queue do not run at the same time.
+
+Each `queue-*/` folder holds the tests' normal run folders (sweeps and restrained runs open in Viewer), `summary.csv` (worst load per connection, the
+test that set it, and every component extreme) and `fea-inputs/<part>/`: `governing-cases.csv` has only the cases that set an
+overall extreme; the numbered files hold each test's cases. Every case is one instant. With two or more seeds it also reports how
+well they agree. `--payload kg` adds the same payload to command-line sweeps, campaigns, `bounds` and `restrained`.
+
 ### Free motion
 
 For an aggressive extreme-load search, use:

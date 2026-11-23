@@ -1,4 +1,5 @@
 """Durable per-trial distributions and live run state shared by both experiments."""
+from collections import deque
 from datetime import datetime, timezone
 import gzip
 import json
@@ -84,6 +85,23 @@ class Peaks:
             self.samples[(sweep_id, sample_index)] = sample
         used = {tuple(k) for k in np.concatenate((self.min_source, self.max_source)).reshape(-1, 2).tolist()}
         self.samples = {k: v for k, v in self.samples.items() if k in used}
+
+
+def ordered_map(pool, function, jobs, workers, cancelled):
+    """Results in job order without batch barriers: workers keep busy while an early slow job finishes."""
+    jobs, pending = iter(jobs), deque()
+    while True:
+        while len(pending) < 4*workers and not cancelled():
+            job = next(jobs, None)
+            if job is None:
+                break
+            pending.append(pool.submit(function, job))
+        if cancelled():
+            # Work not yet started is dropped; running jobs still publish their results.
+            pending = deque(f for f in pending if not f.cancel())
+        if not pending:
+            return
+        yield pending.popleft().result()
 
 
 class RunStore:

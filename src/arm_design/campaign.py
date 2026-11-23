@@ -18,7 +18,7 @@ from .fea import FEARecording, METRICS
 from .model import build_arm
 from .reporting import summary
 from .simulation import Sweep
-from .analysis import RunStore, distribution, Peaks
+from .analysis import RunStore, distribution, Peaks, ordered_map
 from .live_preview import LivePublisher
 
 # Every reported connection is refined on both magnitudes.
@@ -224,10 +224,10 @@ def validate_extreme_sweeps(cfg, store, peaks, sweeps, workers, log):
         checked = []
         with ProcessPoolExecutor(workers, context, _init,
                 (fine, False, store.state['settings']['max_overlap_mm'], False, str(store.path/'CANCEL'),context.Value('i',0))) as pool:
-            for offset in range(0, len(jobs), workers):
-                if store.cancelled:
-                    break
-                checked.extend(pool.map(_validation_trial, jobs[offset:offset+workers]))
+            for result in ordered_map(pool, _validation_trial, jobs, workers, lambda: store.cancelled):
+                checked.append(result)
+                if len(checked) % workers and len(checked) < len(jobs):
+                    continue
                 store.state['validation_progress'] = dict(timestep_s=fine['simulation']['step_s'],
                     checked=len(checked), total=len(jobs))
                 store.publish()
@@ -485,18 +485,11 @@ def campaign(cfg, out, samples=200, iterations=20, duration_range=(.1, 5.), work
             context = multiprocessing.get_context('spawn')
             with ProcessPoolExecutor(workers, context, _init,
                     (cfg, include_failed, max_overlap_mm, full_history, str(store.path/'CANCEL'),context.Value('i',0))) as pool:
-                for offset in range(0, len(jobs), workers):
-                    if store.cancelled:
-                        break
-                    for results in pool.map(execute, jobs[offset:offset+workers]):
-                        collect(results, 'random')
+                for results in ordered_map(pool, execute, jobs, workers, lambda: store.cancelled):
+                    collect(results, 'random')
                 if iterations and not store.cancelled:
-                    refine = refine_jobs()
-                    for offset in range(0, len(refine), workers):
-                        if store.cancelled:
-                            break
-                        for results in pool.map(_refine, refine[offset:offset+workers]):
-                            collect(results, 'refine')
+                    for results in ordered_map(pool, _refine, refine_jobs(), workers, lambda: store.cancelled):
+                        collect(results, 'refine')
         if counted % PROGRESS_EVERY:
             snapshot(sweeps[-1]['stage'])
     except BaseException as exc:

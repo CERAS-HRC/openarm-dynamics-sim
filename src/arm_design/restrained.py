@@ -9,7 +9,7 @@ from xml.etree import ElementTree as ET
 import mujoco
 import numpy as np
 
-from .analysis import RunStore, distribution, result_from_recording
+from .analysis import RunStore, distribution, result_from_recording, ordered_map
 from .campaign import Peaks, CampaignRecording
 from .collision import CollisionChecker, describe
 from .fea import FEARecording
@@ -213,17 +213,13 @@ def restrained(cfg, out, poses=3, seed=0, workers=1, duration=.5, ramp=.05,
     context = multiprocessing.get_context('spawn')
     try:
         with ProcessPoolExecutor(workers, context, _init, (cfg, options,str(store.path),context.Value('i',0))) as pool:
-            while not store.cancelled:
-                batch = list(islice(jobs, workers))
-                if not batch:
-                    break
-                for result in pool.map(_run, batch):
-                    i = len(summaries)
-                    store.add(i, result, 'enumeration')
-                    peaks.add(i, result)
-                    summaries.append({k: v for k, v in result.items() if k not in
-                        ('distribution', 'extrema', 'minimum', 'maximum', 'min_index', 'max_index')})
-                    log(f'{i+1}/{min(expected, max_trials or expected)} torque trials; {store.state["counted"]} accepted', flush=True)
+            for result in ordered_map(pool, _run, jobs, workers, lambda: store.cancelled):
+                i = len(summaries)
+                store.add(i, result, 'enumeration')
+                peaks.add(i, result)
+                summaries.append({k: v for k, v in result.items() if k not in
+                    ('distribution', 'extrema', 'minimum', 'maximum', 'min_index', 'max_index')})
+                log(f'{i+1}/{min(expected, max_trials or expected)} torque trials; {store.state["counted"]} accepted', flush=True)
         export = None
         if peaks.samples:
             rec = RestrainedRecording(arm, peaks, summaries, settings)

@@ -45,6 +45,7 @@ def main():
     p.add_argument('--clamp-position-tolerance', type=float, default=.005, help='Restrained: maximum weld drift, metres')
     p.add_argument('--clamp-angle-tolerance', type=float, default=.05, help='Restrained: maximum weld drift, radians')
     p.add_argument('--max-trials', type=int, help='Restrained: stop after this many combinations; result is explicitly partial')
+    p.add_argument('--payload',type=float,help='Sweep/campaign/bounds/restrained: extra kg at the end effector (5 cm box, same default position as the Runner)')
     p.add_argument('--port', type=int, default=8050, help='Dashboard: localhost port')
     p.add_argument('--trial', type=int, default=0, help='Replay: campaign trial index')
     args=p.parse_args()
@@ -111,6 +112,13 @@ def main():
     if args.duration is not None:
         c['sweep']['duration_s']=args.duration
         validate(c)
+    if args.payload is not None:
+        from .payload import box_payload
+        c['analysis_payload']=box_payload(c,args.payload)
+        try:
+            validate(c)
+        except ValueError as exc:
+            p.error(str(exc))
     if args.command=='restrained':
         from .restrained import restrained
         import json

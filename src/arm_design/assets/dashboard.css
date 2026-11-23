@@ -112,3 +112,12 @@
 .fea-overview .fea-view #pose .js-plotly-plot,.fea-overview .fea-view #pose .plot-container{max-height:none}
 @media(max-width:1350px){.tail-controls{gap:6px}.tail-readout{flex-basis:85px}.tail-value{font-size:11px}.fea-overview .link-summary th,.fea-overview .link-summary td{padding:6px}}
 @media(max-width:1050px){.fea-overview .fea-view{height:360px}.fea-overview .link-summary table{min-width:650px}}
+
+/* Test queue: one row per test, one click to run unattended. */
+.queue-workspace main{max-width:1250px;margin:0 auto}
+#queue-settings{border:0;padding:0;margin:0;min-width:0}#queue-settings:disabled{opacity:.65;pointer-events:none}
+.queue-options{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:14px}.queue-options label{margin:8px 0 5px;letter-spacing:.03em}
+.queue-table{font-variant-numeric:tabular-nums}.queue-table input{margin:0;min-width:90px;padding:6px 8px}.queue-table input[type=checkbox]{min-width:0;margin-right:8px;accent-color:#25c9a3}.queue-table label{margin:0;font-size:13px;letter-spacing:0;color:#d9e5ef}
+.link-summary .queue-table td:last-child{white-space:normal}.queue-amount{display:flex;align-items:center;gap:8px}
+.queue-running{color:#25c9a3;font-weight:700}.queue-failed{color:#ef7176;font-weight:700}.queue-stopped{color:#ffb45b}.queue-finished{color:#9dc66b}
+.queue-workspace .runner-actions{max-width:820px}#queue-status{margin-top:10px}#queue-status .status{margin-bottom:10px}

@@ -7,6 +7,11 @@ def default_payload_offset(cfg):
     return [0., .15, 0.] if cfg.get('urdf',{}).get('tip_link') == 'drumstick' else [0.,0.,0.]
 
 
+def box_payload(cfg, mass):
+    """The Runner's default 5 cm box at the default offset."""
+    return dict(mass_kg=float(mass), com_offset_m=default_payload_offset(cfg), box_size_m=[.05]*3, inertia_com_kg_m2=None)
+
+
 def validate_payload(payload):
     from .config import positive, vector
     mass = payload['mass_kg']
