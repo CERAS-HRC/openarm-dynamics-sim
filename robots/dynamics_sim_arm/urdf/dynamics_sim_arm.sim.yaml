@@ -1,0 +1,188 @@
+# dynamics_sim_arm (Onshape): J1/J2: 03, J3/J4: 06, J5/J6/J7: 00. Joint angles are degrees.
+# The URDF, joint limits, 00-J6 ratings and linkages pins are written by scripts/prepare_dynamics_sim_arm.py.
+# J6 is driven at the swivel (no moving lever); 00-J6 is the motor through the most favourable lever ratio, so it leans high.
+# linkages: the swivel load is replaced by bearing + lever pin loads (see docs/MODEL.md).
+# fea.exclude_bodies lists every motor EXCEPT rs00_2: the J6 motor, l5 and l5_2 are one rigid part named l5.
+# collision.decompose_bodies: concave forearm parts collide as small convex cells instead of one filled hull.
+# Tip is the drumstick's striking end. The floor height is assumed, not measured.
+model_type: urdf
+name: Dynamics sim arm / RobStride / J6 lever
+urdf:
+  path: dynamics_sim_arm.urdf
+  package_roots: []
+  tip_link: drumstick
+  tip_offset_m:
+  - 0.0
+  - -0.15
+  - 0.1631
+base_xyz_m:
+- 0.0
+- 0.0
+- 0.0
+base_rpy_deg:
+- 0.0
+- 0.0
+- 0.0
+gravity_m_s2:
+- 0.0
+- 0.0
+- -9.81
+motors:
+  '03':
+    mass_kg: 0.88
+    diameter_m: 0.106
+    depth_m: 0.056
+    rated_torque_nm: 20.0
+    peak_torque_nm: 60.0
+    rated_speed_rpm: 100.0
+    no_load_speed_rpm: 195.0
+    gear_ratio: 9.0
+    source: https://robstride.com/products/robStride03
+  '06':
+    mass_kg: 0.621
+    diameter_m: 0.088
+    depth_m: 0.049
+    rated_torque_nm: 11.0
+    peak_torque_nm: 36.0
+    rated_speed_rpm: 100.0
+    no_load_speed_rpm: 480.0
+    gear_ratio: 9.0
+    source: https://robstride.com/products/robStride06
+  '00':
+    mass_kg: 0.31
+    diameter_m: 0.057
+    depth_m: 0.051
+    rated_torque_nm: 5.0
+    peak_torque_nm: 14.0
+    rated_speed_rpm: 100.0
+    no_load_speed_rpm: 315.0
+    gear_ratio: 10.0
+    source: https://robstride.com/products/robStride00
+  00-J6:
+    mass_kg: 0.31
+    rated_torque_nm: 6.314
+    peak_torque_nm: 21.287
+    rated_speed_rpm: 79.19
+    no_load_speed_rpm: 249.46
+    gear_ratio: 10.0
+    lever_ratio_range:
+    - 1.2627
+    - 1.5205
+    source: 'RobStride 00 through the J6 lever: peak torque and speeds use the most
+      favourable lever ratio'
+joints:
+- name: j1_l1
+  type: revolute
+  motor: '03'
+  limits_deg:
+  - -136.000127
+  - 136.000127
+  kp_nm_rad: 120
+  kd_nm_s_rad: 12
+- name: j2_l2
+  type: revolute
+  motor: '03'
+  limits_deg:
+  - -203.000093
+  - 23.000016
+  kp_nm_rad: 120
+  kd_nm_s_rad: 12
+- name: j3_l3
+  type: revolute
+  motor: '06'
+  limits_deg:
+  - -134.500124
+  - 134.500124
+  kp_nm_rad: 120
+  kd_nm_s_rad: 12
+- name: j4_l4
+  type: revolute
+  motor: '06'
+  limits_deg:
+  - -134.999743
+  - 134.999743
+  kp_nm_rad: 120
+  kd_nm_s_rad: 12
+- name: j5_l5
+  type: revolute
+  motor: '00'
+  limits_deg:
+  - -151.499781
+  - 151.499781
+  kp_nm_rad: 60
+  kd_nm_s_rad: 5
+- name: j6_swivel
+  type: revolute
+  motor: 00-J6
+  limits_deg:
+  - -28.699972
+  - 28.699972
+  kp_nm_rad: 60
+  kd_nm_s_rad: 5
+- name: j7_endeff
+  type: revolute
+  motor: '00'
+  limits_deg:
+  - -179.999848
+  - 179.999848
+  kp_nm_rad: 60
+  kd_nm_s_rad: 5
+drive:
+  torque_derating: 0.8
+  speed_envelope: true
+  gravity_compensation: true
+simulation:
+  step_s: 0.001
+  contacts: false
+  floor_z_m: -0.686
+fea:
+  exclude_bodies:
+  - rs03*
+  - rs06*
+  - rs00
+  - rs00_1
+sweep:
+  a_deg:
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  b_deg:
+  - 45.0
+  - -45.0
+  - 30.0
+  - 30.0
+  - 30.0
+  - 15.0
+  - 30.0
+  duration_s: 3.0
+  approach_s: 2.0
+  settle_s: 1.0
+  hold_s: 1.0
+  tracking_tolerance_deg: 5.0
+  jog_speed_deg_s: 30.0
+collision:
+  decompose_bodies:
+  - l5
+  - l5_2
+  cell_mm: 10.0
+linkages:
+- joint: j6_swivel
+  crank: lever_to_l5
+  lever: lever
+  support: rs00_1
+  crank_pin_m:
+  - 0.035318
+  - 0.0096
+  - 0.0
+  lever_pin_m:
+  - 0.0110086
+  - 0.003
+  - -0.073946
+  rocker_pin_m:
+  - 0.044599962
+  - 0.03550009
+  - 2.0e-09

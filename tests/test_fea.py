@@ -41,6 +41,8 @@ def assert_body_balance(rec, sample):
     m = rec.model
     loads, points = sample['loads_local'], sample['application_points_local_m']
     for part in rec.parts():
+        if part.get('massless'):  # Linkage parts use moving frames; see test_linkage.
+            continue
         root = part['body_id']
         ids = [b for b, r in rec.part_of.items() if r == root]
         R, origin = sample['body_rotation_world'][root-1], sample['body_origin_world_m'][root-1]
@@ -83,7 +85,7 @@ def test_static_weight_bending_and_frame_transform():
 
 
 RIGHT = ROOT/'robots/right_arm_assembly/urdf/right_arm_assembly.sim.yaml'
-@pytest.mark.parametrize('path', [DEFAULT_CONFIG, ROOT/'robots/moving_asm/urdf/moving_asm.sim.yaml', RIGHT])
+@pytest.mark.parametrize('path', [DEFAULT_CONFIG, ROOT/'robots/moving_asm/urdf/moving_asm.sim.yaml', RIGHT, ROOT/'robots/dynamics_sim_arm/urdf/dynamics_sim_arm.sim.yaml'])
 def test_dynamic_balance_every_part(path):
     imported = 'moving_asm' in str(path)
     arm = build_arm(load_config(path))

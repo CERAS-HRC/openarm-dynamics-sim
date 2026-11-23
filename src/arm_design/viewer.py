@@ -23,6 +23,7 @@ from .experiment import Experiment
 from .model import structure
 from .torque_charts import chart_width, draw_torque_charts
 from .fea import METRICS
+from .linkage import linkages
 
 PANEL_WIDTH = 380
 # The Linux imgui-bundle wheel vendors a private libglvnd, so its native
@@ -62,7 +63,8 @@ class Window:
         self.fea_body = 0
         self.fea_interface = 0
         self.fea_preview = None
-        self.render_model = None
+        self.render_model = self.linkage_model = None
+        self.levers = []
         self.campaign_path = ''
         self.campaign_metric = METRICS.index('force_N')
         self.campaign_pause = True
@@ -497,6 +499,10 @@ class Window:
         viewport = mujoco.MjrRect(left,0,max(1,width-left-right),height)
         # Refresh render transforms without altering logged pre-step samples.
         mujoco.mj_forward(model,data)
+        if self.linkage_model is not model:
+            self.linkage_model, self.levers = model, linkages(model, e.cfg)
+        for link in self.levers:
+            link.place(model,data)
         mujoco.mjv_updateScene(model,data,self.option,None,self.camera,mujoco.mjtCatBit.mjCAT_ALL,self.scene)
         mujoco.mjr_render(viewport,self.scene,self.context)
         mujoco.mjr_overlay(mujoco.mjtFontScale.mjFONTSCALE_100,mujoco.mjtGridPos.mjGRID_TOPLEFT,viewport,

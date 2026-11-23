@@ -7,8 +7,10 @@ from pathlib import Path
 
 import mujoco
 import numpy as np
+import yaml
 
 from .fea import METRICS
+from .linkage import linkages
 from .trial_recording import trace_path
 
 
@@ -52,7 +54,39 @@ def model_geometry(model_path, modified_ns):
               for b in range(model.nbody)]
     joints = [dict(body=int(model.jnt_bodyid[j]),kind=int(model.jnt_type[j]),axis=model.jnt_axis[j].tolist(),
                    pos=model.jnt_pos[j].tolist(),qpos=int(model.jnt_qposadr[j])) for j in range(model.njnt)]
-    return dict(meshes=meshes, geoms=geoms,bodies=bodies,joints=joints,qpos0=model.qpos0.tolist())
+    qpos0 = model.qpos0.tolist()
+    # Lever bodies are welded in the physics; give the browser hinges for them, after the real coordinates.
+    for link in saved_linkages(Path(model_path).parent, model):
+        R = lambda b: data.xmat[b].reshape(3,3)
+        for b, axis, pos in ((link.crank, link.axis, np.zeros(3)),
+                (link.lever, R(link.lever).T@R(link.crank)@link.axis, R(link.lever).T@(link.neutral_pin(data)-data.xpos[link.lever]))):
+            joints.append(dict(body=b,kind=3,axis=axis.tolist(),pos=pos.tolist(),qpos=len(qpos0)))
+            qpos0.append(0.)
+    return dict(meshes=meshes, geoms=geoms,bodies=bodies,joints=joints,qpos0=qpos0)
+
+
+def saved_linkages(folder, model):
+    config = folder/'config.yaml'
+    return linkages(model, yaml.safe_load(config.read_text())) if config.exists() else []
+
+
+@lru_cache(maxsize=4)
+def _linkage_model(model_path, modified_ns):
+    model = mujoco.MjModel.from_binary_path(model_path)
+    return model, saved_linkages(Path(model_path).parent, model)
+
+
+def display_pose(folder, q):
+    """Joint angles plus each lever's crank and relative lever angle, matching model_geometry."""
+    path = Path(folder)/'model.mjb'
+    model, found = _linkage_model(str(path), path.stat().st_mtime_ns)
+    if not found or len(q) != model.nq:
+        return q
+    data = mujoco.MjData(model)
+    data.qpos[:] = q
+    mujoco.mj_kinematics(model, data)
+    solved = [link.solve(data) for link in found]
+    return [*q, *(float(x) for s in solved for x in (s['theta'], s['phi']-s['theta']))]
 
 
 def metric_value(load, metric):
@@ -114,6 +148,7 @@ def playback(path, trial_id, part, interface, metric, extreme):
     if q.shape[1] != model.nq:
         raise ValueError('Recorded joint coordinates do not match the saved model.')
     data, geoms = mujoco.MjData(model), visual_geoms(model)
+    levers = saved_linkages(path, model)
     if not geoms:
         raise ValueError('The saved model has no visible robot geometry.')
     poses, displayed_loads = [], []
@@ -122,9 +157,11 @@ def playback(path, trial_id, part, interface, metric, extreme):
         pose, load = frames[t]
         data.qpos[:] = pose
         mujoco.mj_kinematics(model, data)
+        for link in levers:
+            link.place(model, data)
         poses.append(np.concatenate((data.geom_xpos[geoms], data.geom_xmat[geoms]), axis=1).tolist())
         displayed_loads.append(load[[i for i, _ in mates]].tolist())
-    members = next((p['bodies'] for p in meta.get('parts', []) if p['name'] == part), [part])
+    members = next((p.get('visual_bodies', p['bodies']) for p in meta.get('parts', []) if p['name'] == part), [part])
     kind = 'minimum' if metric in METRICS[:6] and extreme == 'minimum' else (
         'largest absolute' if metric in METRICS[:6] and extreme == 'absolute' else 'maximum')
     return dict(path=str(path), trial=int(trial_id), part=part, members=members,

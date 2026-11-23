@@ -72,9 +72,13 @@ def part_cases(folder, part, fixed=None, all_extremes=False, selected_samples=No
         rows = [dict(other=names[f['other_body_id']], point=points[i], load=loads[i]) for i, f in mates]
         gravity = R.T@gravity_world
         accelerations = np.array(s['com_acceleration_world'])
-        acceleration = R.T@(sum(m*accelerations[b, 3:] for b, _, m in members)/mass if mass else accelerations[k, 3:])
+        if body.get('massless'):  # Two-force linkage parts: no body loads, loads are in their own moving frame.
+            gravity = np.zeros(3)
+        acceleration = np.zeros(3) if body.get('massless') else R.T@(sum(m*accelerations[b, 3:] for b, _, m in members)/mass if mass else accelerations[k, 3:])
         angular_velocity = R.T@np.array(s['com_velocity_world'][k][:3])
         angular_acceleration = R.T@accelerations[k, :3]
+        if body.get('massless'):
+            angular_velocity, angular_acceleration = np.zeros(3), np.zeros(3)
         contact = None
         if s.get('contact_body') in body['bodies']:
             contact = dict(point=R.T@(np.array(s['contact_point_world_m'])-origin),
@@ -109,7 +113,7 @@ def part_cases(folder, part, fixed=None, all_extremes=False, selected_samples=No
                            bodies=body['bodies'], mass_kg=mass, com_m=np.array(body['com_local_m']),
                            gravity=gravity, acceleration=acceleration, effective_acceleration=gravity-acceleration,
                            angular_velocity=angular_velocity, angular_acceleration=angular_acceleration,
-                           contact=contact, residual_n=float(np.linalg.norm(residual)), moment_residual_nm=float(np.linalg.norm(moment))))
+                           massless=body.get('massless', False), contact=contact, residual_n=float(np.linalg.norm(residual)), moment_residual_nm=float(np.linalg.norm(moment))))
     return result
 
 
@@ -134,6 +138,9 @@ def report(folder, part, cases):
             moment = c['contact'].get('moment', np.zeros(3))
             lines.append(f"  APPLY contact {'load' if np.any(moment) else 'force'} {where} {vec(c['contact']['point'])}: "
                          f"F {vec(c['contact']['force'])}" + (f", M {vec(moment)}" if np.any(moment) else ''))
+        if c['massless']:
+            lines.append(f"  BODY: none (weight carried by the driving part). Frame turns with this part. Balance residual: {c['residual_n']:.2e} N / {c['moment_residual_nm']:.2e} Nm")
+            continue
         lines.append(f"  BODY: mass {c['mass_kg']:.4g} kg, COM {vec(c['com_m'])}; acceleration field (gravity - COM acceleration) "
                      f"{vec(c['effective_acceleration'])} m/s^2")
         if np.linalg.norm(c['angular_velocity']) > 1e-9 or np.linalg.norm(c['angular_acceleration']) > 1e-9:

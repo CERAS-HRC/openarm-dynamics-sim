@@ -174,6 +174,34 @@ Its `.sim.yaml` excludes the `rs*` actuators from load rows; `base`, `screwon` a
 `drumstick` report as the single part `base`, and a massless wrapper part `body_1`
 carries the mount reaction (`body_1 <- world`). See "Loads for FEA" below.
 
+### Dynamics sim arm (J6 lever)
+
+`robots/dynamics_sim_arm` is the Load Lab default robot. After **every** Onshape re-export (replace `urdf/dynamics_sim_arm.urdf`
+and `meshes/`), run:
+
+```bash
+.venv/bin/python scripts/prepare_dynamics_sim_arm.py
+```
+
+It adds motor torque/speed limits and catalog motor masses, closes and welds the J6 crank and lever (weight only), moves the
+J6 hinge midway between its two bearings, removes the pin markers, and updates limits, J6 ratings and pin points in the
+`.sim.yaml` (poses and gains are kept). The raw export is kept as `dynamics_sim_arm.onshape.urdf.raw`. Export with the
+lever-to-`l6` mate suppressed, markers `j6_pin_lever`/`j6_pin_l6` in place and only the base grounded.
+
+J6 is driven at the swivel. Its torque is replaced, at every sample, by the lever force and the bearing load it implies:
+
+| Load Lab link / `--part` | Meaning | Fix | Apply |
+| --- | --- | --- | --- |
+| `l5` | `l5` + J6 motor + `l5_2`, one rigid part | `rs00` (J5) | `l6` (both swivel bearings), `lever_to_l5` (motor output) |
+| `l6` | `l6` + `lever_to_l6` | `rs00_1` (J7 motor) | `l5` (both bearings), `lever` (rocker pin) |
+| `lever_to_l5` | crank | `rs00_2` (motor output) | `lever` (pin) |
+| `lever` | two-force lever | crank end | `l6` end |
+
+The `l5`/`l6` bearing load is given midway between the two bearings (78.2 mm apart); apply it to both bores and let FEA split
+it. Crank and lever loads are in their own, moving part frames. Force along the pins is not resolved.
+J6 limits use the most favourable lever ratio (21.3 Nm, 249 rpm), so contact and restrained J6 loads can read up to about
+20-25% high. Floor height and the bearing at lever mid-thickness are assumptions.
+
 ### Run both arm models
 
 The original arm's structural link masses now match the CAD URDF's `part_1` through

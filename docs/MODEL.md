@@ -145,3 +145,21 @@ Aggressive screening uses at most a 0.5 ms timestep. Record-setting sweeps are r
 at 0.25 ms and 0.125 ms (or finer if the initial step was already smaller), with
 acceptance and peak changes saved separately. Finite-step screening values are not
 silently replaced by reruns; inspect `timestep-validation.json` for final design use.
+
+## Lever-driven hinges (dynamics sim arm J6)
+
+The J6 motor turns a crank; a lever pulls `l6` about the swivel (crank 35.32, lever 74.76, rocker 44.60, ground 75.00 mm).
+The physics drives the swivel hinge directly; crank and lever are welded weight on the `l5` part. `linkage.py` solves the
+planar four-bar from the compiled neutral pose each sample. With T the hinge-axis moment, the lever force is T divided by the
+line of action's moment arm about the swivel. Bearing load = hinge wrench minus the lever force at the rocker pin, so it carries
+no axis moment; the motor-output load is the lever force plus its moment about the crank pivot. Totals on every part are
+unchanged, so Newton-Euler balance still holds. `tests/test_linkage.py` checks a separate closed-loop MuJoCo model (hinged
+crank/lever plus a connect constraint) agrees within 0.1 N at rest.
+
+Neglected: lever/crank inertia relative to the welded pose, friction, play, preload, pin-axial forces, and the changing ratio
+in the torque/speed limits (fixed at the extremes: 1.263-1.521 motor-to-swivel torque ratio). The split between the two swivel
+bearings, and between the J6 motor's bolted faces, is left to FEA. Crank and lever shapes follow the true linkage in views and
+collision checks; they are not checked against parts welded to `l5` or against `l6`.
+
+`collision.decompose_bodies` replaces a concave body's filled convex hull, in the collision checker only, by convex cells of
+its surface (`cell_mm`). Exact triangle tests confirmed the J6 range is clear with the tool at J7 = 0 and 180 deg.

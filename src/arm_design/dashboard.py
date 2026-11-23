@@ -20,7 +20,7 @@ from .config import ROOT
 from .fea import METRICS
 from .fea_view import mesh_figure
 from .load_histograms import trial_extreme, histogram_counts, percentile_text, preview_svg, split_histogram, tail_percentile
-from .trial_playback import playback, model_geometry
+from .trial_playback import playback, model_geometry, display_pose
 from .trial_recording import trace_path, recording_status, start_recording
 from .dashboard_jobs import prepare, save_request, job_state, request_stop
 from .payload import default_payload_offset
@@ -241,59 +241,68 @@ def fea_limits(path, part, stage, accepted, weighting="time"):
     mates = connection_rows(run_info(path).get('interfaces', []), part)
     if not stats['count'] or not mates:
         return html.P('No recorded loads for this selection.', className='note'), [], {}
-    # Proximal support assumption: display the load at the other mounting point.
-    i, ref = mates[1] if len(mates) > 1 else mates[0]
+    # Support assumption: the first mate is fixed; every other mounting point is loaded.
     support = mates[0][1]['label'].split(' <- ')[-1]
-    role = 'Apply at '+ref['label'].split(' <- ')[-1] if len(mates)>1 else 'Support reaction only'
-    options, candidates, cells = [], {}, []
+    options, candidates, sections = [], {}, []
     valid = [r for r in rows if 'minimum' in r and 'maximum' in r]
-    for j, metric in enumerate(METRICS[:6]):
-        low, high = stats['minimum'][i,j], stats['maximum'][i,j]
-        values, observed = [], []
-        for side, value in [('minimum',low),('maximum',high)]:
-            counts = histogram_counts(stats,rows,i,j,weighting,side)
-            weight_label = ('Simulated time · % of physics samples' if weighting == 'time' else f'One {side} per trial · % of trials')
-            preview = dict(title=f"{metric.replace('_',' ')} · {ref['label']}",image=preview_svg(counts,value),
-                summary=percentile_text(counts),weight=weight_label,
-                scope='Test coverage, not real-world occurrence frequency.',
-                path=str(path),part=part,interface=i,metric=metric,side=side,value=float(value))
-            data = dict(preview, counts=counts.tolist(), minimum=float(low), maximum=float(high))
-            ident = dict(metric=metric, side=side)
-            values.append(html.Div([
-                dcc.Store(id=dict(type='tail-data',**ident),data=data),
-                html.Div(tail_readout(TAIL_DEFAULT,data),id=dict(type='tail-readout',**ident),className='tail-readout'),
-                html.Div(dcc.Slider(id=dict(type='tail-slider',**ident), min=.5,max=1,step=.001,value=TAIL_DEFAULT,
-                    marks={.5:'50%',1:'100%'},updatemode='drag',allow_direct_input=False,
-                    reverse=side=='minimum',
-                    disabled=tail_percentile(counts,side,TAIL_DEFAULT,low,high) is None,
-                    persistence=f'{path}|{part}|default-99.5',persistence_type='session'),className='tail-slider',
-                    role='group', **{'aria-label':f'{metric} {side} tail percentile'})
-            ],className=f'tail-controls tail-{side}'))
-            observed.append(html.Td(html.Button(f'{value:+.5g}',
-                    className='load-value tail-observed',type='button',
-                    **{'data-load-preview':json.dumps(preview),'aria-label':f'{metric} observed {side} {value:+.5g}; preview distribution or click to open histogram'}),className='tail-extreme'))
-        cells.append(html.Tr([html.Th(metric.replace('_',' ')), observed[0],
-                              html.Td(values[0],className='tail-cell'),html.Td(values[1],className='tail-cell'),observed[1]]))
-        for side, field, select in [('minimum','minimum',min),('maximum','maximum',max)]:
-            if not valid:
-                continue
-            row = select(valid,key=lambda r:r[field][i][j])
-            value = row[field][i][j]
-            key = f'{part}|{i}|{metric}|{side}'
-            options.append(dict(label=f'{metric.replace("_", " ")} · {"minimum" if side=="minimum" else "maximum"} {value:+.5g}',value=key))
-            candidates[key] = dict(trial=row['id'], interface=i, metric=j, side=side, target=value)
+    for n, (i, ref) in enumerate(mates[1:] or mates):
+        cells = []
+        role = load_role(ref) if len(mates) > 1 else 'Support reaction only'
+        for j, metric in enumerate(METRICS[:6]):
+            low, high = stats['minimum'][i,j], stats['maximum'][i,j]
+            values, observed = [], []
+            for side, value in [('minimum',low),('maximum',high)]:
+                counts = histogram_counts(stats,rows,i,j,weighting,side)
+                weight_label = ('Simulated time · % of physics samples' if weighting == 'time' else f'One {side} per trial · % of trials')
+                preview = dict(title=f"{metric.replace('_',' ')} · {ref['label']}",image=preview_svg(counts,value),
+                    summary=percentile_text(counts),weight=weight_label,
+                    scope='Test coverage, not real-world occurrence frequency.',
+                    path=str(path),part=part,interface=i,metric=metric,side=side,value=float(value))
+                data = dict(preview, counts=counts.tolist(), minimum=float(low), maximum=float(high))
+                ident = dict(metric=metric if not n else f'{metric}|{i}', side=side)
+                values.append(html.Div([
+                    dcc.Store(id=dict(type='tail-data',**ident),data=data),
+                    html.Div(tail_readout(TAIL_DEFAULT,data),id=dict(type='tail-readout',**ident),className='tail-readout'),
+                    html.Div(dcc.Slider(id=dict(type='tail-slider',**ident), min=.5,max=1,step=.001,value=TAIL_DEFAULT,
+                        marks={.5:'50%',1:'100%'},updatemode='drag',allow_direct_input=False,
+                        reverse=side=='minimum',
+                        disabled=tail_percentile(counts,side,TAIL_DEFAULT,low,high) is None,
+                        persistence=f'{path}|{part}|default-99.5',persistence_type='session'),className='tail-slider',
+                        role='group', **{'aria-label':f'{metric} {side} tail percentile'})
+                ],className=f'tail-controls tail-{side}'))
+                observed.append(html.Td(html.Button(f'{value:+.5g}',
+                        className='load-value tail-observed',type='button',
+                        **{'data-load-preview':json.dumps(preview),'aria-label':f'{metric} observed {side} {value:+.5g}; preview distribution or click to open histogram'}),className='tail-extreme'))
+            cells.append(html.Tr([html.Th(metric.replace('_',' ')), observed[0],
+                                  html.Td(values[0],className='tail-cell'),html.Td(values[1],className='tail-cell'),observed[1]]))
+            for side, field, select in [('minimum','minimum',min),('maximum','maximum',max)]:
+                if not valid:
+                    continue
+                row = select(valid,key=lambda r:r[field][i][j])
+                value = row[field][i][j]
+                key = f'{part}|{i}|{metric}|{side}'
+                options.append(dict(label=f'{metric.replace("_", " ")} · {"minimum" if side=="minimum" else "maximum"} {value:+.5g}',value=key))
+                candidates[key] = dict(trial=row['id'], interface=i, metric=j, side=side, target=value)
+        sections += [html.Div([html.P(role,className='fea-mate'),
+            *([html.Button('Reset all to 99.5%',id='reset-tail-percentiles',n_clicks=0,type='button')] if not n else [])],className='fea-table-toolbar'),
+            html.Table([html.Colgroup([html.Col(style={'width':w}) for w in ['9%','12%','33.5%','33.5%','12%']]),
+                html.Thead(html.Tr([html.Th(x) for x in ['Component','Observed min','← Negative tail','Positive / zero tail →','Observed max']])),html.Tbody(cells)])]
     note = (f'Assumed support: {support}. Limits at the loaded connection; each minimum/maximum is a separate case. '
             'Independent extrema are not one simultaneous load case. Values act ON this link in its local XYZ frame.')
     if len(mates)==1:
         note = (f'Only one mounting connection: {support}. These limits are support reactions, not loads to apply to a fixed face. '
                 'External/contact and body loads are available in the recorded FEA exports.')
-    table = html.Div([html.Div([html.P(role,className='fea-mate'),
-        html.Button('Reset all to 99.5%',id='reset-tail-percentiles',n_clicks=0,type='button')],className='fea-table-toolbar'),
-        html.Table([html.Colgroup([html.Col(style={'width':w}) for w in ['9%','12%','33.5%','33.5%','12%']]),
-            html.Thead(html.Tr([html.Th(x) for x in ['Component','Observed min','← Negative tail','Positive / zero tail →','Observed max']])),html.Tbody(cells)]),
+    if any('linkage' in r for _, r in mates):
+        note += (' Lever-driven joint: bearing rows are both swivel bearings combined, midway between them; apply them together with the '
+                 'lever row from the SAME instant. Use fea-cases for complete simultaneous cases.')
+    table = html.Div([*sections,
         html.P('Slide outward to include more loads: left for negative, right for positive. Hover for tail statistics; click for the histogram. Percentiles are binned estimates; observed min/max are exact. Test coverage is not an operating duty cycle.',className='note tail-explanation'),
         html.P(note,className='note')],className='link-summary')
     return table, options, candidates
+
+
+def load_role(ref):
+    return 'Apply at '+ref['label'].split(' <- ')[-1]+(f" · {ref['role']}" if 'role' in ref else '')
 
 
 def link_summary(path, part, stage, accepted, weighting="time"):
@@ -503,7 +512,8 @@ def create_app(root):
     root.mkdir(parents=True, exist_ok=True)
     app = Dash(__name__, title='OpenArm · Load Lab', assets_folder=str(Path(__file__).with_name('assets')),
                assets_ignore=r'(three\.module|OrbitControls)\.js')
-    models = [ROOT/'robots/right_arm_assembly/urdf/right_arm_assembly.sim.yaml',
+    models = [ROOT/'robots/dynamics_sim_arm/urdf/dynamics_sim_arm.sim.yaml',
+              ROOT/'robots/right_arm_assembly/urdf/right_arm_assembly.sim.yaml',
               ROOT/'robots/moving_asm/urdf/moving_asm.sim.yaml', ROOT/'configs/arm.yaml']
     launch_lock, processes, active_jobs = RLock(), {}, {}
     for job_file in root.glob('job-*/job.json'):
@@ -622,6 +632,8 @@ def create_app(root):
             info = run_info(p)
             supported = info.get('live_preview_version') == 1
             pose = watched_pose(p,supported and info['status']=='running')
+            if pose:
+                pose = dict(pose, q_rad=display_pose(p, pose['q_rad']))
             response = jsonify(status=info['status'],pose=pose,supported=supported)
             response.headers['Cache-Control'] = 'no-store'
             return response
@@ -858,7 +870,11 @@ def create_app(root):
     def parts(path, current):
         refs = run_info(safe(path)).get('interfaces', []) if path else []
         names = list(dict.fromkeys(part_name(r) for _, r in connection_rows(refs)))
-        labels = {'base': 'base · terminal assembly', 'body_1': 'body_1 · mount'}
+        labels = {'base': 'base · terminal assembly', 'body_1': 'body_1 · mount', 'base_2': 'base_2 · tool'}
+        for ref in refs:
+            if 'linkage' in ref:
+                part = part_name(ref)
+                labels.setdefault(part, part+{'bearing': ' · with lever motor' if ref['sign'] < 0 else ' · lever output', 'crank support': ' · crank', 'lever crank end': ' · tension, compression'}.get(ref['role'], ''))
         options = [{'label': labels.get(n, n), 'value': n} for n in names]
         return options, current if current in names else ('l1' if 'l1' in names else next(iter(names), None))
 

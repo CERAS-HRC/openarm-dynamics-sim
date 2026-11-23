@@ -3,6 +3,52 @@ from xml.etree import ElementTree as ET
 
 import mujoco
 import numpy as np
+from scipy.spatial import ConvexHull
+
+from .linkage import linkages
+
+
+def decompose(root, model, name, cell):
+    """Replace a concave body's mesh hulls with small convex cells of its surface (slightly oversized, never hollow-filling)."""
+    body = next(b for b in root.iter('body') if b.get('name') == name)
+    bid = model.body(name).id
+    d = mujoco.MjData(model)
+    mujoco.mj_kinematics(model, d)
+    R, p = d.xmat[bid].reshape(3, 3), d.xpos[bid]
+    points = []
+    for g in np.flatnonzero((model.geom_bodyid == bid) & (model.geom_type == int(mujoco.mjtGeom.mjGEOM_MESH))):
+        k = model.geom_dataid[g]
+        v = model.mesh_vert[model.mesh_vertadr[k]:][:model.mesh_vertnum[k]]@d.geom_xmat[g].reshape(3, 3).T+d.geom_xpos[g]
+        tris = ((v-p)@R)[model.mesh_face[model.mesh_faceadr[k]:][:model.mesh_facenum[k]]]
+        while True:  # Bisect longest edges until triangles are small compared with a cell.
+            edge = np.linalg.norm(tris-np.roll(tris, -1, axis=1), axis=2)
+            big = edge.max(axis=1) > cell/2
+            if not big.any():
+                break
+            t, e = tris[big], edge[big].argmax(axis=1)
+            n = np.arange(len(t))
+            a, b, c = t[n, e], t[n, (e+1) % 3], t[n, (e+2) % 3]
+            middle = (a+b)/2
+            tris = np.concatenate((tris[~big], np.stack((a, middle, c), 1), np.stack((middle, b, c), 1)))
+        points.append(tris)
+    tris = np.concatenate(points)
+    keys = np.floor(tris.mean(axis=1)/cell).astype(int)
+    _, owner = np.unique(keys, axis=0, return_inverse=True)
+    owner = owner.ravel()
+    asset = root.find('asset')
+    for geom in body.findall('geom'):
+        if geom.get('mesh'):
+            geom.attrib.update(contype='0', conaffinity='0')
+    for i in range(owner.max()+1):
+        v = np.unique(np.round(tris[owner == i].reshape(-1, 3), 7), axis=0)
+        # Flat patches need a little thickness to have a convex hull.
+        u, s, axes = np.linalg.svd(v-v.mean(axis=0), full_matrices=False)
+        if len(v) < 4 or s[-1] < 1e-4:
+            normal = np.cross(axes[0], axes[1])
+            v = np.concatenate((v-5e-5*normal, v+5e-5*normal))
+        v = v[ConvexHull(v).vertices]
+        ET.SubElement(asset, 'mesh', name=f'cell_{name}_{i}', vertex=' '.join(f'{x:.8g}' for x in v.ravel()), inertia='shell')
+        ET.SubElement(body, 'geom', type='mesh', mesh=f'cell_{name}_{i}', group='5', mass='0', contype='1', conaffinity='1')
 
 
 class CollisionChecker:
@@ -11,8 +57,12 @@ class CollisionChecker:
         root = ET.fromstring(arm.xml)
         for geom in root.iter('geom'):
             geom.attrib.update(contype='1', conaffinity='1')
+        cells = arm.cfg.get('collision', {})
+        for name in cells.get('decompose_bodies', []):
+            decompose(root, arm.model, name, cells.get('cell_mm', 10.)/1000)
         # Hulls and body collision filters are built at compile time, so recompile.
         self.model = mujoco.MjModel.from_xml_string(ET.tostring(root, encoding='unicode'))
+        self.linkages = linkages(self.model, arm.cfg)
         self.data = mujoco.MjData(self.model)
         # Floating-point contacts at exactly touching hulls are not overlaps.
         self.tolerance = max(max_overlap_mm/1000, 1e-6)
@@ -29,6 +79,8 @@ class CollisionChecker:
         m, d = self.model, self.data
         d.qpos[:] = q
         mujoco.mj_kinematics(m, d)
+        for link in self.linkages:
+            link.place(m, d)
         mujoco.mj_collision(m, d)
         found = {}
         c = d.contact

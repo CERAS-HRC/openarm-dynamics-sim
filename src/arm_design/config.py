@@ -105,6 +105,13 @@ def validate_motion(c):
             raise ValueError(f'{k} must be between 0.1 and 120 seconds')
     positive(s['tracking_tolerance_deg'], 'tracking_tolerance_deg')
     positive(s['jog_speed_deg_s'], 'jog_speed_deg_s')
+    from .linkage import validate_linkages
+    validate_linkages(c)
+    cells = c.get('collision', {})
+    if cells:
+        positive(cells.get('cell_mm', 10.), 'collision.cell_mm')
+        if any(not isinstance(b, str) for b in cells.get('decompose_bodies', [])):
+            raise ValueError('collision.decompose_bodies must be a list of body names')
     # Optional: body-name globs (actuators) that receive no FEA load rows.
     fea = c.get('fea', {})
     exclude = fea.get('exclude_bodies', []) if isinstance(fea, dict) else None

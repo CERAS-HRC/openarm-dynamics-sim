@@ -10,6 +10,8 @@ import mujoco
 import numpy as np
 import yaml
 
+from .linkage import linkages
+
 
 METRICS = ('Fx_N', 'Fy_N', 'Fz_N', 'Mx_Nm', 'My_Nm', 'Mz_Nm', 'force_N', 'moment_Nm')
 
@@ -75,6 +77,9 @@ class FEARecording:
                     if self.part_of.get(body) == root and self.part_of.get(other) != root:
                         self.interfaces.append(dict(body_id=root, other_body_id=other, child_id=child, sign=sign,
                                                     kind='mate', part=name, label=f'{name} <- {self.names[other]}'))
+        self.linkages = linkages(m, self.cfg)
+        for n, link in enumerate(self.linkages):
+            self.add_linkage(n, link)
         shape = (len(self.interfaces), len(METRICS))
         self.minimum = np.full(shape, np.inf)
         self.maximum = np.full(shape, -np.inf)
@@ -86,6 +91,59 @@ class FEARecording:
         self.max_tracking_error_deg = 0.
         self.saturated_samples = 0
         self.contact_samples = 0
+
+    def add_linkage(self, n, link):
+        """Split one hinge connection into bearing and lever rows; crank and lever become massless parts."""
+        root, rocker = self.part_of.get(link.crank), self.part_of.get(link.rocker)
+        hinge = [i for i in self.interfaces if i['child_id'] == link.rocker]
+        if root is None or rocker is None or len(hinge) != 2 or self.part_of.get(link.lever) != root \
+                or self.part_of.get(int(self.model.body_parentid[link.rocker])) != root:
+            raise ValueError('A linkage needs its hinge between two structural parts, with crank and lever fixed to the driving one.')
+        for i in hinge:
+            # Name whole parts: both bearings act, whichever welded member the hinge hangs from.
+            other = root if i['body_id'] == rocker else rocker
+            i.update(linkage=n, role='bearing', other_body_id=other, label=f"{i['part']} <- {self.names[other]}")
+        motor = int(self.model.body_parentid[link.crank])
+        def row(body, other, role):
+            return dict(body_id=body, other_body_id=other, child_id=link.rocker, sign=1, kind='mate', linkage=n, role=role,
+                        part=self.names[body], label=f'{self.names[body]} <- {self.names[other]}')
+        after = lambda body: max(k for k, i in enumerate(self.interfaces) if i['body_id'] == body)+1
+        self.interfaces.insert(after(root), row(root, link.crank, 'motor'))
+        self.interfaces.insert(after(rocker), row(rocker, link.lever, 'rocker pin'))
+        # A bearing cannot hold the rocker alone: support it at its distal motor mount by default.
+        support = [i for i in self.interfaces if i['body_id'] == rocker and self.names[i['other_body_id']] == link.cfg.get('support')]
+        if support:
+            self.interfaces.remove(support[0])
+            self.interfaces.insert(min(k for k, i in enumerate(self.interfaces) if i['body_id'] == rocker), support[0])
+        self.interfaces += [row(link.crank, motor, 'crank support'), row(link.crank, link.lever, 'crank pin'),
+                            row(link.lever, link.crank, 'lever crank end'), row(link.lever, rocker, 'lever rocker end')]
+
+    def linkage_loads(self, m, d, interface, point):
+        link = self.linkages[interface['linkage']]
+        force_moment = d.cfrc_int[link.rocker]
+        anchor = d.xanchor[link.joint]
+        force = force_moment[3:]
+        moment = force_moment[:3] + cross(d.subtree_com[m.body_rootid[link.rocker]]-anchor, force)
+        s, push, bearing, motor_moment = link.loads(d, force, moment)
+        role, body, zero = interface['role'], interface['body_id'], np.zeros(3)
+        R, origin = d.xmat[body].reshape(3, 3), d.xpos[body]
+        if role == 'bearing':
+            f, t, p = interface['sign']*bearing[0], interface['sign']*bearing[1], point
+        elif role == 'motor':
+            f, t, p = -push, -motor_moment, s['origin']
+        elif role == 'rocker pin':
+            f, t, p = push, zero, s['P']
+        else:  # Crank and lever rows use their true (rotated) frames, not the welded weight's.
+            if body == link.crank:
+                R, origin = s['crank_rotation'], s['origin']
+            else:
+                R = s['lever_rotation']
+                origin = s['B']-R@(d.xmat[body].reshape(3, 3).T@(link.neutral_pin(d)-d.xpos[body]))
+            f, t, p = {'crank support': (push, motor_moment, s['origin']), 'crank pin': (-push, zero, s['B']),
+                       'lever crank end': (push, zero, s['B']), 'lever rocker end': (-push, zero, s['P'])}[role]
+        load = np.concatenate((R.T@f, R.T@t))
+        load[np.abs(load) < 1e-9] = 0  # Free pins: round-off is not a load.
+        return load, R.T@(p-origin)
 
     @property
     def duration(self):
@@ -108,6 +166,9 @@ class FEARecording:
             # A hinge's anchor need not equal the child body origin.
             joint = int(m.body_jntadr[child])
             point = d.xanchor[joint] if m.body_jntnum[child] else d.xpos[child]
+            if 'linkage' in interface:
+                loads[i], points[i] = self.linkage_loads(m, d, interface, point)
+                continue
             reference = d.subtree_com[m.body_rootid[child]]
             loads[i] = local_wrench(interface['sign']*d.cfrc_int[child], reference, point, rotations[body])
             points[i] = rotations[body].T@(point-d.xpos[body])
@@ -132,6 +193,14 @@ class FEARecording:
             result.append(dict(name=self.names[root], body_id=root, bodies=[self.names[b] for b in ids], mass_kg=mass,
                                com_local_m=(R[root].T@(com-d.xpos[root])).tolist(),
                                inertia_com_local_kg_m2=(R[root].T@inertia@R[root]).tolist()))
+            moving = {b for link in self.linkages for b in (link.crank, link.lever)}
+            if moving & set(ids):
+                # Their weight stays here; their shapes and loads belong to their own parts.
+                result[-1]['visual_bodies'] = [self.names[b] for b in ids if b not in moving]
+        for link in self.linkages:
+            for b in (link.crank, link.lever):
+                result.append(dict(name=self.names[b], body_id=b, bodies=[self.names[b]], mass_kg=0., massless=True,
+                                   com_local_m=[0., 0., 0.], inertia_com_local_kg_m2=np.zeros((3, 3)).tolist()))
         return result
 
     def capture(self, m, d, row, phase):
@@ -221,6 +290,8 @@ class FEARecording:
                 'Original generated model bodies aggregate structure, motor housings and any tool/payload. These are assembly loads, not isolated structural-part loads.',
                 'CAD face mapping, support selection, mesh validation and material properties must be supplied in the FEA tool.',
                 'Component extrema occur at different times; use complete snapshots as load cases.',
+                *(['Lever linkages: the hinge is driven directly and its axis torque is replaced by a two-force lever (massless; its weight stays '
+                   'with the driving part). Bearing rows are the combined load of both bearings, midway between them.'] if self.linkages else []),
             ],
             max_tracking_error_deg=self.max_tracking_error_deg,
             saturated_samples=self.saturated_samples, contact_samples=self.contact_samples,

@@ -91,3 +91,8 @@ had near-zero export masses (no material assigned); the user's measured 0.151 lb
 0.065 lb (`screwon`) and 0.043 lb (`drumstick`) replace them, with CAD COM retained and
 inertia scaled by the mass ratio. The compiled arm totals 5.4116 kg. Its `.sim.yaml` copies `moving_asm`'s drive data, gains and floor.
 
+
+`robots/dynamics_sim_arm` is an Onshape export (2026-11-23). Motor housings exported at 1.0 kg/m3; the preparation script sets
+catalog RS03/RS06/RS00 masses (0.88/0.621/0.31 kg) with scaled inertia, peak torque and no-load speed. Other masses are the CAD
+materials (2700 kg/m3 structure, about 1250 kg/m3 tool) without fasteners or wiring (confirmed by the user as intended). Joint limits are the Onshape mate limits;
+J7 +-180 deg is confirmed. The floor (-0.686 m) is assumed; its position does not matter for these tests. Compiled mass 5.3696 kg.

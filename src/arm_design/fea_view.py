@@ -55,6 +55,21 @@ def mate_points(model_path, modified_ns, interfaces):
     return points
 
 
+def linkage_points(run_path, meta, mates):
+    """Lever pins are not body anchors; ask the recorder's own load-point code."""
+    import yaml
+    from .fea import FEARecording
+    from .model import Arm
+    cfg = yaml.safe_load((run_path/'config.yaml').read_text())
+    arm = Arm(cfg, mujoco.MjModel.from_binary_path(str(run_path/'model.mjb')), '', np.array([]))
+    data = mujoco.MjData(arm.model)
+    mujoco.mj_forward(arm.model, data)
+    rec = FEARecording(arm, data)
+    mujoco.mj_rnePostConstraint(arm.model, data)
+    _, points = rec.interface_loads(arm.model, data)
+    return [points[i] for i, _ in mates]
+
+
 def mesh_figure(meta, sample, part, run_path=None):
     figure = go.Figure()
     figure.update_layout(template='plotly_dark', paper_bgcolor='#101b29', plot_bgcolor='#101b29',
@@ -67,7 +82,7 @@ def mesh_figure(meta, sample, part, run_path=None):
     model = Path(run_path)/'model.mjb' if run_path else None
     if model and model.exists() and body:
         try:
-            meshes = part_meshes(str(model), model.stat().st_mtime_ns, part, tuple(body['bodies']))
+            meshes = part_meshes(str(model), model.stat().st_mtime_ns, part, tuple(body.get('visual_bodies', body['bodies'])))
         except (ValueError, OSError) as exc:
             message = f'Mesh unavailable: {exc}'
     if not meshes:
@@ -82,6 +97,8 @@ def mesh_figure(meta, sample, part, run_path=None):
     if not points and model and model.exists() and mates:
         try:
             points = mate_points(str(model),model.stat().st_mtime_ns,tuple((r['body_id'],r['child_id']) for _,r in mates))
+            if any('linkage' in r for _,r in mates):
+                points = linkage_points(Path(run_path),meta,mates)
         except (KeyError,ValueError,OSError) as exc:
             message = f'Mate positions unavailable: {exc}'
     all_points = [v for _,v,_ in meshes] + ([np.array(points)] if points else [])
